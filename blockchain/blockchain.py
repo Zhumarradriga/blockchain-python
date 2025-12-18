@@ -24,7 +24,6 @@ from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 
 
-
 MINING_SENDER = "THE BLOCKCHAIN"
 MINING_REWARD = 1
 MINING_DIFFICULTY = 2
@@ -48,12 +47,13 @@ class Blockchain:
         loaded_chain = self.load_chain_from_db()
         if loaded_chain:
             self.chain = loaded_chain
-            print(f"✅ Нода на порту {port or 'default'}: загружено {len(self.chain)} блоков из {self.db_path}")
+            print(
+                f"✅ Нода на порту {port or 'default'}: загружено {len(self.chain)} блоков из {self.db_path}")
         else:
             self.create_block(0, '00')
-            print(f"🆕 Нода на порту {port or 'default'}: создан генезис-блок в {self.db_path}")
+            print(
+                f"🆕 Нода на порту {port or 'default'}: создан генезис-блок в {self.db_path}")
 
-    
     def init_db(self, db_path='blockchain.db'):
         self.db_path = db_path
         # Создаём таблицу, если не существует
@@ -74,14 +74,16 @@ class Blockchain:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('''INSERT OR REPLACE INTO blocks
-                    (block_number, timestamp, transactions, nonce, previous_hash, hash)
+                    (block_number, timestamp, transactions,
+                     nonce, previous_hash, hash)
                     VALUES (?, ?, ?, ?, ?, ?)''',
-                (block['block_number'],
-                block['timestamp'],
-                json.dumps(block['transactions']),  # сериализуем список транзакций
-                block['nonce'],
-                block['previous_hash'],
-                block['hash']))
+                  (block['block_number'],
+                   block['timestamp'],
+                   # сериализуем список транзакций
+                   json.dumps(block['transactions']),
+                   block['nonce'],
+                   block['previous_hash'],
+                   block['hash']))
         conn.commit()
         conn.close()
 
@@ -99,18 +101,16 @@ class Blockchain:
                 'transactions': json.loads(row['transactions']),
                 'nonce': row['nonce'],
                 'previous_hash': row['previous_hash'],
-                'hash': row['hash']
+                'hash': row['hash']  # Сохраняем оригинальный хеш из БД
             }
             chain.append(block)
-        conn.close()
         return chain
-
 
     def register_node(self, node_url):
         """
         Add a new node to the list of nodes
         """
-        #Checking node_url has valid format
+        # Checking node_url has valid format
         parsed_url = urlparse(node_url)
         if parsed_url.netloc:
             self.nodes.add(parsed_url.netloc)
@@ -119,7 +119,6 @@ class Blockchain:
             self.nodes.add(parsed_url.path)
         else:
             raise ValueError('Invalid URL')
-
 
     def verify_transaction_signature(self, sender_address, signature, transaction):
         """
@@ -131,57 +130,58 @@ class Blockchain:
         h = SHA.new(str(transaction).encode('utf8'))
         return verifier.verify(h, binascii.unhexlify(signature))
 
-
     def submit_transaction(self, sender_address, recipient_address, value, signature):
         """
         Add a transaction to transactions array if the signature verified
         """
-        transaction = OrderedDict({'sender_address': sender_address, 
-                                    'recipient_address': recipient_address,
-                                    'value': value})
+        transaction = OrderedDict({'sender_address': sender_address,
+                                   'recipient_address': recipient_address,
+                                   'value': value})
 
-        #Reward for mining a block
+        # Reward for mining a block
         if sender_address == MINING_SENDER:
             self.transactions.append(transaction)
             return len(self.chain) + 1
-        #Manages transactions from wallet to another wallet
+        # Manages transactions from wallet to another wallet
         else:
-            transaction_verification = self.verify_transaction_signature(sender_address, signature, transaction)
+            transaction_verification = self.verify_transaction_signature(
+                sender_address, signature, transaction)
             if transaction_verification:
                 self.transactions.append(transaction)
                 return len(self.chain) + 1
             else:
                 return False
 
-
     def create_block(self, nonce, previous_hash):
         block = {
             'block_number': len(self.chain) + 1,
             'timestamp': time.time(),
-            'transactions': self.transactions,
+            'transactions': self.transactions.copy(),  # Важно: копируем список
             'nonce': nonce,
             'previous_hash': previous_hash,
-            'hash': None  # пока неизвестен
+            'hash': None  # Временно None для корректного расчёта
         }
-        block['hash'] = self.hash(block)
+        # Сначала вычисляем хеш без поля 'hash'
+        calculated_hash = self.hash(block)
+
+        # Теперь устанавливаем хеш и сохраняем
+        block['hash'] = calculated_hash
         self.transactions = []  # очищаем пул
         self.chain.append(block)
-
-        #  Сохраняем в SQLite
         self.save_block_to_db(block)
-
         return block
-
 
     def hash(self, block):
         """
         Create a SHA-256 hash of a block
         """
-        # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
-        block_string = json.dumps(block, sort_keys=True).encode()
-        
-        return hashlib.sha256(block_string).hexdigest()
+        # Создаём копию без поля 'hash' чтобы избежать циклической зависимости
+        block_copy = block.copy()
+        block_copy.pop('hash', None)  # Удаляем поле хеша перед расчётом
 
+        # Гарантируем одинаковый порядок ключей
+        block_string = json.dumps(block_copy, sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
 
     def proof_of_work(self):
         """
@@ -196,7 +196,6 @@ class Blockchain:
 
         return nonce
 
-
     def valid_proof(self, transactions, last_hash, nonce, difficulty=MINING_DIFFICULTY):
         """
         Check if a hash value satisfies the mining conditions. This function is used within the proof_of_work function.
@@ -204,7 +203,6 @@ class Blockchain:
         guess = (str(transactions)+str(last_hash)+str(nonce)).encode()
         guess_hash = hashlib.sha256(guess).hexdigest()
         return guess_hash[:difficulty] == '0'*difficulty
-
 
     def valid_chain(self, chain):
         """
@@ -215,19 +213,21 @@ class Blockchain:
 
         while current_index < len(chain):
             block = chain[current_index]
-            #print(last_block)
-            #print(block)
-            #print("\n-----------\n")
-            # Check that the hash of the block is correct
+
+            # Проверяем хеш предыдущего блока
             if block['previous_hash'] != self.hash(last_block):
+                print(
+                    f"❌ Хеш не совпадает! Ожидаемый: {self.hash(last_block)}, Фактический: {block['previous_hash']}")
                 return False
 
             # Check that the Proof of Work is correct
-            #Delete the reward transaction
+            # Delete the reward transaction
             transactions = block['transactions'][:-1]
             # Need to make sure that the dictionary is ordered. Otherwise we'll get a different hash
-            transaction_elements = ['sender_address', 'recipient_address', 'value']
-            transactions = [OrderedDict((k, transaction[k]) for k in transaction_elements) for transaction in transactions]
+            transaction_elements = [
+                'sender_address', 'recipient_address', 'value']
+            transactions = [OrderedDict(
+                (k, transaction[k]) for k in transaction_elements) for transaction in transactions]
 
             if not self.valid_proof(transactions, block['previous_hash'], block['nonce'], MINING_DIFFICULTY):
                 return False
@@ -239,35 +239,58 @@ class Blockchain:
 
     def resolve_conflicts(self):
         """
-        Resolve conflicts between blockchain's nodes
-        by replacing our chain with the longest one in the network.
+        Улучшенный метод разрешения конфликтов, который учитывает невалидность локальной цепочки
         """
         neighbours = self.nodes
         new_chain = None
 
-        # We're only looking for chains longer than ours
-        max_length = len(self.chain)
+        # Проверяем валидность нашей собственной цепочки
+        our_chain_valid = self.valid_chain(self.chain)
+        print(f"Наша цепочка валидна: {our_chain_valid}")
 
-        # Grab and verify the chains from all the nodes in our network
+        # Если наша цепочка невалидна, мы готовы принять ЛЮБУЮ валидную цепочку,
+        # даже если она короче нашей
+        if not our_chain_valid:
+            print("⚠️ Наша цепочка невалидна! Ищем ЛЮБУЮ валидную цепочку")
+
         for node in neighbours:
-            print('http://' + node + '/chain')
-            response = requests.get('http://' + node + '/chain')
+            try:
+                response = requests.get(f'http://{node}/chain', timeout=1)
 
-            if response.status_code == 200:
-                length = response.json()['length']
-                chain = response.json()['chain']
+                if response.status_code == 200:
+                    length = response.json()['length']
+                    chain = response.json()['chain']
 
-                # Check if the length is longer and the chain is valid
-                if length > max_length and self.valid_chain(chain):
-                    max_length = length
-                    new_chain = chain
+                    # Две стратегии выбора:
+                    # 1. Если наша цепочка невалидна - принимаем ЛЮБУЮ валидную цепочку
+                    # 2. Если наша цепочка валидна - принимаем только более длинные валидные цепочки
+                    chain_valid = self.valid_chain(chain)
+                    should_replace = (
+                        (not our_chain_valid and chain_valid) or
+                        (our_chain_valid and length > len(
+                            self.chain) and chain_valid)
+                    )
 
-        # Replace our chain if we discovered a new, valid chain longer than ours
+                    if should_replace:
+                        print(
+                            f"✅ Выбрана цепочка от узла {node} (длина: {length}, валидна: {chain_valid})")
+                        new_chain = chain
+                        break  # Находим первую подходящую цепочку и выходим
+
+            except Exception as e:
+                print(f" Ошибка при запросе к узлу {node}: {str(e)}")
+                continue
+
+        # Заменяем цепочку, если нашли подходящую
         if new_chain:
             self.chain = new_chain
+            print(
+                f" Цепочка успешно заменена. Новая длина: {len(self.chain)}")
             return True
 
+        print(" Не найдено подходящей цепочки для замены")
         return False
+
 
 # Instantiate the Node
 app = Flask(__name__)
@@ -276,14 +299,15 @@ CORS(app)
 # Instantiate the Blockchain
 blockchain = Blockchain()
 
+
 @app.route('/')
 def index():
     return render_template('./index.html')
 
+
 @app.route('/configure')
 def configure():
     return render_template('./configure.html')
-
 
 
 @app.route('/transactions/new', methods=['POST'])
@@ -295,22 +319,26 @@ def new_transaction():
     if not all(k in values for k in required):
         return 'Missing values', 400
     # Create a new Transaction
-    transaction_result = blockchain.submit_transaction(values['sender_address'], values['recipient_address'], values['amount'], values['signature'])
+    transaction_result = blockchain.submit_transaction(
+        values['sender_address'], values['recipient_address'], values['amount'], values['signature'])
 
     if transaction_result == False:
         response = {'message': 'Invalid Transaction!'}
         return jsonify(response), 406
     else:
-        response = {'message': 'Transaction will be added to Block '+ str(transaction_result)}
+        response = {
+            'message': 'Transaction will be added to Block ' + str(transaction_result)}
         return jsonify(response), 201
+
 
 @app.route('/transactions/get', methods=['GET'])
 def get_transactions():
-    #Get transactions from transactions pool
+    # Get transactions from transactions pool
     transactions = blockchain.transactions
 
     response = {'transactions': transactions}
     return jsonify(response), 200
+
 
 @app.route('/chain', methods=['GET'])
 def full_chain():
@@ -320,6 +348,7 @@ def full_chain():
     }
     return jsonify(response), 200
 
+
 @app.route('/mine', methods=['GET'])
 def mine():
     # We run the proof of work algorithm to get the next proof...
@@ -327,7 +356,8 @@ def mine():
     nonce = blockchain.proof_of_work()
 
     # We must receive a reward for finding the proof.
-    blockchain.submit_transaction(sender_address=MINING_SENDER, recipient_address=blockchain.node_id, value=MINING_REWARD, signature="")
+    blockchain.submit_transaction(
+        sender_address=MINING_SENDER, recipient_address=blockchain.node_id, value=MINING_REWARD, signature="")
 
     # Forge the new Block by adding it to the chain
     previous_hash = blockchain.hash(last_block)
@@ -341,7 +371,6 @@ def mine():
         'previous_hash': block['previous_hash'],
     }
     return jsonify(response), 200
-
 
 
 @app.route('/nodes/register', methods=['POST'])
@@ -385,6 +414,7 @@ def get_nodes():
     response = {'nodes': nodes}
     return jsonify(response), 200
 
+
 @app.route('/validate', methods=['GET'])
 def validate_chain():
     is_valid = blockchain.valid_chain(blockchain.chain)
@@ -395,12 +425,12 @@ def validate_chain():
     return jsonify(response), 200
 
 
-
 if __name__ == '__main__':
     from argparse import ArgumentParser
 
     parser = ArgumentParser()
-    parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
+    parser.add_argument('-p', '--port', default=5000,
+                        type=int, help='port to listen on')
     args = parser.parse_args()
     port = args.port
 
@@ -408,11 +438,3 @@ if __name__ == '__main__':
     blockchain = Blockchain(port=port)
 
     app.run(host='127.0.0.1', port=port)
-
-
-
-
-
-
-
-
